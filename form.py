@@ -1,25 +1,27 @@
+from collections import namedtuple
 from dataclasses import dataclass
 from datetime import date, time, datetime
 
+# See README's Config section for more info
 TYPES = {"w", "m", "c", "d", "t", "x"}
 
-# Specialized functions (key, response -> dict[str, str])
-def format_normal(key, response):
-    return {f"entry.{key}": response}
+# Specialized functions (key, message -> dict[str, str])
+def format_normal(key, message):
+    return {f"entry.{key}": message}
 
-def format_sentinel(key, response):
-    return {f"entry.{key}": response, f"entry.{key}_sentinel": ""}
+def format_sentinel(key, message):
+    return {f"entry.{key}": message, f"entry.{key}_sentinel": ""}
 
-def format_date(key, response):
+def format_date(key, message):
     keys = [f"entry.{key}_month", f"entry.{key}_day", f"entry.{key}_year"]
-    return dict(zip(keys, response))
+    return dict(zip(keys, message))
 
-def format_time(key, response):
+def format_time(key, message):
     keys = [f"entry.{key}_hour", f"entry.{key}_minute"]
-    return dict(zip(keys, response))
+    return dict(zip(keys, message))
 
-def format_extra(key, response):
-    return {key: response}
+def format_extra(key, message):
+    return {key: message}
 
 # General formatting function (uses a `type` argument)
 FORMATS = {
@@ -30,32 +32,32 @@ FORMATS = {
     "t": format_time,
     "x": format_extra,
 }
-def format_response(key, type, response):
+def format_message(key, type, message):
     """
     Return a dictionary to be POSTed to the form.
 
-    Format the key and response into a dict using the type. The result
+    Format the key and message into a dict using the type. The result
     should be merged to the data dictionary.
 
     Formatter functions shouldn't raise exceptions if supplied the proper
-    response from the parser functions. Don't give a string from
+    message from the parser functions. Don't give a string from
     parse_words to format_time.
     """
-    return FORMATS[type](key, response)
+    return FORMATS[type](key, message)
 
 # Parsing functions (one str argument)
 def parse_normal(value):
     return value
 
 def parse_checkboxes(value):
-    responses = list(map(str.strip, value.split(",")))
-    if not all(responses):
+    messages = list(map(str.strip, value.split(",")))
+    if not all(messages):
         raise ValueError("Empty choice in value: {value}")
-    return responses
+    return messages
 
 def parse_date(value):
     if value == "current":
-        return date.today().strftime("%m/%d/%Y").split("/")
+        value = date.today().strftime("%m/%d/%Y")
     month, day, year = value.split("/")
     if len(month) != 2 or len(day) != 2 or len(year) != 4:
         raise ValueError("Incorrect date format: MM/DD/YYYY")
@@ -64,7 +66,7 @@ def parse_date(value):
 
 def parse_time(value):
     if value == "current":
-        return datetime.now().strftime("%H:%M").split(":")
+        value = datetime.now().strftime("%H:%M")
     hour, minute = value.split(":")
     if len(hour) != 2 or len(minute) != 2:
         raise ValueError("Incorrect time format: HH:MM")
@@ -81,10 +83,10 @@ PARSERS = {
 }
 def parse_value(value, type):
     """
-    Return a string / list[str] as the response.
+    Return a string / list[str] as the message.
 
     Parse the string using the type. The result should be passed to
-    formatters.
+    format_message.
 
     Parser functions can raise ValueError if the string doesn't match the
     format of the type.
@@ -191,7 +193,7 @@ def prompt_entry(entry):
         value = input(f"{entry.title}: {PROMPTS[entry.type]} ").strip()
         if not value:
             if entry.required and not entry.value:
-                print(f"Response for entry '{entry.title}' is required")
+                print(f"Value for entry '{entry.title}' is required")
                 continue
             print(f"Using default value: {entry.value}")
             value = entry.value
@@ -202,28 +204,28 @@ def prompt_entry(entry):
                 # If provided value isn't empty, it could be a mistake.
                 # Only skip when it is purposefully left empty.
                 return ""
-            print(repr(e))
+            print(type(e).__name__, *e.args)
 
 def parse_entries(entries, *, on_prompt=prompt_entry):
     """
-    Return a list of parsed responses.
+    Return a list of parsed messages.
 
-    Parse the entries to create a list of responses. If the entry needs a
+    Parse the entries to create a list of messages. If the entry needs a
     prompt, on_prompt is called with the entry. It should return a
-    response or raise an error. The result should be passed to
+    message or raise an error. The result should be passed to
     `format_entries`.
     """
-    responses = []
+    messages = []
     for entry in entries:
         if entry.prompt:
-            responses.append(on_prompt(entry))
+            messages.append(on_prompt(entry))
         elif entry.required and not entry.value:
             raise ValueError(f"Value for entry '{entry.title}' is required")
         else:
-            responses.append(parse_value(entry.value, entry.type))
-    return responses
+            messages.append(parse_value(entry.value, entry.type))
+    return messages
 
-def format_entries(entries, responses):
+def format_entries(entries, messages):
     """
     Return a dictionary to be POSTed to the form.
 
@@ -232,16 +234,29 @@ def format_entries(entries, responses):
     data argument.
     """
     data = {}
-    for entry, response in zip(entries, responses):
-        data |= format_response(entry.key, entry.type, response)
+    for entry, message in zip(entries, messages):
+        data |= format_message(entry.key, entry.type, message)
     return data
 
+ConfigInfo = namedtuple("ConfigInfo", "url entries")
+def open_config(file):
+    """
+    Open config file and return the URL and entries.
+    """
+    if isinstance(file, str):
+        file = open(file)
+    with file:
+        url = to_form_url(file.readline().strip())
+        entries = [EntryInfo.from_string(string) for line in file if (string := line.strip())]
+    return ConfigInfo(url, entries)
+
 def main():
+    import os
     import sys
 
     if len(sys.argv) > 2:
         print("Too many arguments. Usage: python form.py <filename>")
-        return
+        sys.exit(1)
 
     if len(sys.argv) <= 1 or not sys.argv[1]:
         name = "config.txt"
@@ -250,21 +265,23 @@ def main():
         name = sys.argv[1]
         print(f"Using config file: {name}")
 
-    print("Reading config...")
-    with open(name) as file:
-        url = to_form_url(file.readline().strip())
-        print(f"Form URL: {url}")
-        entries = [EntryInfo.from_string(string) for line in file if (string := line.strip())]
+    if not os.path.exists(name):
+        print("Provided file name doesn't exist: {name}")
+        sys.exit(2)
 
-    responses = parse_entries(entries, on_prompt=prompt_entry)
-    data = format_entries(entries, responses)
+    print("Reading config...")
+    config = open_config(name)
+    print(f"Form URL: {config.url}")
+
+    messages = parse_entries(config.entries, on_prompt=prompt_entry)
+    data = format_entries(config.entries, messages)
     print(f"Form data: {data}")
 
     try:
         import requests
     except ImportError:
         print("Form cannot be submitted (missing requests library)")
-        return
+        sys.exit(3)
 
     if input("Should the form be submitted? (Y/N) ").strip().lower() != "y":
         print("Form will not be submitted")
@@ -279,6 +296,8 @@ if __name__ == "__main__":
         main()
     except:
         import traceback
+        import sys
         traceback.print_exc()
+        sys.exit(4)
     finally:
         input("Press enter to close the program...")
