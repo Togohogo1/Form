@@ -41,7 +41,9 @@ You can also run the following in case the program window closes immediately.
 
 ## Config
 
-The *config.txt* file starts with the link to the Google Form (just copy from the address bar). The following lines have the following form:
+The *config.txt* file starts with the link to the Google Form (just copy from the address bar).
+
+The following lines contain info for each entry and the format is shown below. Empty lines and lines starting with `"#"` are skipped. Spaces between parts are ignored.
 
 ```
 ["*"] ["!"] type "-" key ";" [title] "=" [value]
@@ -51,18 +53,18 @@ The star `"*"` means that this entry is required. An empty value will be rejecte
 
 The mark `"!"` means that you will be prompted for the value. This would be for sensitive information that you wouldn't want lying around in a file.
 
-The `type` can be one of `"w"`, `"m"`, `"c"`, `"d"`, `"t"`, or `"x"`. They specify different data formats or value parsing. More info is provided in the table below.
+The `type` specifies a different data format or value parsing. More info is provided in the table below.
 
-| Type   | Description                                     |
-|--------|-------------------------------------------------|
-| `w`    | Short Answer, Paragraph                         |
-| `m`    | Multiple Choice, Dropdown                       |
-| `c`    | Checkboxes (comma-separated)                    |
-| `d`    | Date (MM/DD/YYYY) or `current` for current date |
-| `t`    | Time (HH:MM) or `current` for current time      |
-| `x`    | Extra Data                                      |
+| Type         | Aliases                      | Description                                   |
+|--------------|------------------------------|-----------------------------------------------|
+| `words`      | `w`, `word`, `text`          | Short Answer, Paragraph                       |
+| `choice`     | `m`, `mc`, `multiple choice` | Multiple Choice, Dropdown                     |
+| `checkboxes` | `c`, `checkbox`              | Checkboxes (comma-separated)                  |
+| `date`       | `d`                          | Date (MM/DD/YYYY) or `today` for current date |
+| `time`       | `t`                          | Time (HH:MM) or `now` for current time        |
+| `extra`      | `x`, `extra data`            | Extra Data                                    |
 
-The `key` identifies the entry. It can be the entry ID in the form `entry.<id>` or just the key in the data (when `type` is `"x"`).
+The `key` identifies the entry. It can be the entry ID in the form `entry.<id>` or just the key in the data (when `type` is `"extra"`).
 
 The `title` is a human readable string that identifies the entry. If empty, it defaults to the entry. You can use this to show the question or to keep a description of a data entry.
 

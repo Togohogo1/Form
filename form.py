@@ -1,9 +1,17 @@
 from collections import namedtuple
 from dataclasses import dataclass
 from datetime import date, time, datetime
+from string import ascii_letters, digits
 
 # See README's Config section for more info
-TYPES = {"w", "m", "c", "d", "t", "x"}
+TYPES = {
+    "words": ["w", "word", "text"],
+    "choice": ["m", "mc", "multiple choice"],
+    "checkboxes": ["c", "checkbox"],
+    "date": ["d"],
+    "time": ["t"],
+    "extra": ["x", "xD", "extra data"],
+}
 
 # Specialized functions (key, message -> dict[str, str])
 def format_normal(key, message):
@@ -25,23 +33,23 @@ def format_extra(key, message):
 
 # General formatting function (uses a `type` argument)
 FORMATS = {
-    "w": format_normal,
-    "m": format_sentinel,
-    "c": format_normal,
-    "d": format_date,
-    "t": format_time,
-    "x": format_extra,
+    "words": format_normal,
+    "choice": format_sentinel,
+    "checkboxes": format_normal,
+    "date": format_date,
+    "time": format_time,
+    "extra": format_extra,
 }
 def format_message(key, type, message):
     """
     Return a dictionary to be POSTed to the form.
 
-    Format the key and message into a dict using the type. The result
-    should be merged to the data dictionary.
+    Format the key and message into a dict using the type. The result should be
+    merged to the data dictionary.
 
     Formatter functions shouldn't raise exceptions if supplied the proper
-    message from the parser functions. Don't give a string from
-    parse_words to format_time.
+    message from the parser functions. Don't give a string from parse_words to
+    format_time.
     """
     return FORMATS[type](key, message)
 
@@ -52,34 +60,34 @@ def parse_normal(value):
 def parse_checkboxes(value):
     messages = list(map(str.strip, value.split(",")))
     if not all(messages):
-        raise ValueError("Empty choice in value: {value}")
+        raise ValueError(f"Empty choice in value: {value}")
     return messages
 
 def parse_date(value):
-    if value == "current":
+    if value in {"current", "today"}:
         value = date.today().strftime("%m/%d/%Y")
     month, day, year = value.split("/")
     if len(month) != 2 or len(day) != 2 or len(year) != 4:
         raise ValueError("Incorrect date format: MM/DD/YYYY")
-    date(int(year), int(month), int(day))  # Test if date is real
+    date(int(year), int(month), int(day))  # Check if date is real
     return [month, day, year]
 
 def parse_time(value):
-    if value == "current":
+    if value in {"current", "now"}:
         value = datetime.now().strftime("%H:%M")
     hour, minute = value.split(":")
     if len(hour) != 2 or len(minute) != 2:
         raise ValueError("Incorrect time format: HH:MM")
-    time(int(hour), int(minute))  # Test if time is real
+    time(int(hour), int(minute))  # Check if time is real
     return [hour, minute]
 
 PARSERS = {
-    "w": parse_normal,
-    "m": parse_normal,
-    "c": parse_checkboxes,
-    "d": parse_date,
-    "t": parse_time,
-    "x": parse_normal,
+    "words": parse_normal,
+    "choice": parse_normal,
+    "checkboxes": parse_checkboxes,
+    "date": parse_date,
+    "time": parse_time,
+    "extra": parse_normal,
 }
 def parse_value(value, type):
     """
@@ -110,52 +118,67 @@ class EntryInfo:
         Parse a string of the format `[*] [!] type - key ; title = value`.
         Return a dataclass (simple object) with the config info.
 
-        A string "*!type-key;title=value" would give
-        `EntryInfo(required=True, prompt=True, type="type", key="key",
-        title="title", value="value")`.
+        A string "*!type-key;title=value" would give `EntryInfo(required=True,
+        prompt=True, type="type", key="key", title="title", value="value")`.
 
         Examples of config lines:
             w-1000;Question=Default
-            !t-1001;Date=
-            *m-1001;Class=
-            c-1002;Languages=Python,Java,C++
-            *!x-emailAddress;Email Address=
+            ! time - 1001 ; Time = current
+            *multiple choice - 1001 ; Class =
+            checkbox-1002; Languages = Python,Java,C++
+            *! extra-emailAddress; Email Address =
         """
+        string = string.strip()
+
         if not string:
             raise ValueError("Empty entry")
         required = (string[0] == "*")
-        string = string.removeprefix("*")
+        string = string.removeprefix("*").strip()
 
         if not string:
             raise ValueError("Missing type")
         prompt = (string[0] == "!")
-        string = string.removeprefix("!")
+        string = string.removeprefix("!").strip()
 
-        type, split, string = string.partition("-")
-        if type not in TYPES:
+        type, split, string = map(str.strip, string.partition("-"))
+        for name, aliases in TYPES.items():
+            if type == name:
+                break
+            elif type in aliases:
+                type = name
+                break
+        else:
             raise ValueError(f"Type not valid: {type}")
         if not split:
             raise ValueError("Missing type-key split '-'")
 
-        key, split, string = string.partition(";")
+        key, split, string = map(str.strip, string.partition(";"))
         if not key:
             raise ValueError("Missing key")
         if not split:
             raise ValueError("Missing key-title split ';'")
 
-        title, split, value = string.partition("=")
+        title, split, value = map(str.strip, string.partition("="))
         if not title:
             title = key  # Title defaults to the key if absent.
         if not split:
             raise ValueError("Missing title-value split '='")
 
-        key = key.strip()
-        title = title.strip()
-        value = value.strip()
-
         return cls(required, prompt, type, key, title, value)
 
-ID_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+def test_EntryInfo_from_string():
+    # TODO: Add tests for ValueError (maybe use pytest)
+    a = EntryInfo(True, True, "words", "key", "title", "value")
+    assert EntryInfo.from_string(" *!words-key;title=value ") == a
+    assert EntryInfo.from_string(" * ! words - key ; title = value ") == a
+
+    b = EntryInfo(False, False, "words", "key", "key", "")
+    assert EntryInfo.from_string("words-key;=") == b
+    assert EntryInfo.from_string("w-key;=") == b
+    assert EntryInfo.from_string("word-key;=") == b
+    assert EntryInfo.from_string("text-key;=") == b
+
+ID_CHARS = set(ascii_letters + digits + "-_")  # [a-zA-Z0-9_-]
 def to_form_url(string):
     """
     Return a URL that can be POSTed to.
@@ -165,6 +188,7 @@ def to_form_url(string):
     converted into a POST URL. If the string is the form's ID, it will be
     substituted into a URL.
     """
+    string = string.strip()
     if set(string) <= ID_CHARS:
         if len(string) != 56:
             raise ValueError("Form ID not 56 characters long")
@@ -176,12 +200,12 @@ def to_form_url(string):
     raise ValueError(f"String cannot be converted into POST link: {string}")
 
 PROMPTS = {
-    "w": "[Text]",
-    "m": "[Multiple Choice]",
-    "c": "[Checkboxes (comma-separated)]",
-    "d": "[Date MM/DD/YYYY]",
-    "t": "[Time HH:MM]",
-    "x": "[Extra Data]",
+    "words": "[Text]",
+    "choice": "[Multiple Choice]",
+    "checkboxes": "[Checkboxes (comma-separated)]",
+    "date": "[Date MM/DD/YYYY or 'today']",
+    "time": "[Time HH:MM or 'now']",
+    "extra": "[Extra Data]",
 }
 
 def prompt_entry(entry):
@@ -211,9 +235,8 @@ def parse_entries(entries, *, on_prompt=prompt_entry):
     Return a list of parsed messages.
 
     Parse the entries to create a list of messages. If the entry needs a
-    prompt, on_prompt is called with the entry. It should return a
-    message or raise an error. The result should be passed to
-    `format_entries`.
+    prompt, on_prompt is called with the entry. It should return a message or
+    raise an error. The result should be passed to `format_entries`.
     """
     messages = []
     for entry in entries:
@@ -229,9 +252,8 @@ def format_entries(entries, messages):
     """
     Return a dictionary to be POSTed to the form.
 
-    Format and merge the entries to create a data dictionary containing
-    entries and other data. The result should be POSTed to a URL as the
-    data argument.
+    Format and merge the entries to create a data dictionary containing entries
+    and other data. The result should be POSTed to a URL as the data argument.
     """
     data = {}
     for entry, message in zip(entries, messages):
@@ -246,31 +268,52 @@ def open_config(file):
     if isinstance(file, str):
         file = open(file)
     with file:
-        url = to_form_url(file.readline().strip())
-        entries = [EntryInfo.from_string(string) for line in file if (string := line.strip())]
+        url = to_form_url(file.readline())
+        entries = []
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                continue
+            entries.append(EntryInfo.from_string(line))
     return ConfigInfo(url, entries)
 
-def main():
-    import os
+# Returns the passed config file name
+def parse_arguments(argv):
     import sys
 
-    if len(sys.argv) > 2:
+    if len(argv) > 2:
         print("Too many arguments. Usage: python form.py <filename>")
         sys.exit(1)
 
-    if len(sys.argv) <= 1 or not sys.argv[1]:
-        name = "config.txt"
-        print(f"Using default filename: {name}")
-    else:
-        name = sys.argv[1]
-        print(f"Using config file: {name}")
+    if len(argv) == 2:
+        print(f"Using config file: {argv[1]}")
+        return argv[1]
 
-    if not os.path.exists(name):
-        print("Provided file name doesn't exist: {name}")
+    print("Using default name: config.txt")
+    return "config.txt"
+
+# Returns config info of the passed file name
+def read_config(name):
+    import sys
+
+    print("Opening config file...")
+    try:
+        file = open(name)
+    except FileNotFoundError:
+        print(f"File doesn't exist: {name}")
         sys.exit(2)
 
-    print("Reading config...")
-    config = open_config(name)
+    with open(name) as file:
+        print("Reading config entries...")
+        return open_config(file)
+
+def main():
+    import sys
+
+    name = parse_arguments(sys.argv)
+    config = read_config(name)
     print(f"Form URL: {config.url}")
 
     messages = parse_entries(config.entries, on_prompt=prompt_entry)
@@ -280,21 +323,24 @@ def main():
     try:
         import requests
     except ImportError:
-        print("Form cannot be submitted (missing requests library)")
+        print("Form will not be submitted (missing requests library)")
         sys.exit(3)
 
-    if input("Should the form be submitted? (Y/N) ").strip().lower() != "y":
+    if input("Submit the form data? (Y/N) ").strip().lower() != "y":
         print("Form will not be submitted")
         return
 
     print("Submitting form...")
-    response = requests.post(url, data=data)
-    print(f"Response received (200s are good): {response.status_code} {response.reason}")
+    response = requests.post(config.url, data=data)
+    print(f"Response received: {response.status_code} {response.reason}")
 
 if __name__ == "__main__":
     try:
         main()
-    except:
+    # Apparently an empty except catches SystemExit. This prevents it.
+    except SystemExit:
+        raise
+    except Exception:
         import traceback
         import sys
         traceback.print_exc()
