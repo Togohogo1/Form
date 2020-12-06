@@ -33,9 +33,9 @@ Create a virtual environment and download the required libraries.
 
 ## Usage
 
-Drag an internet shortcut onto *run.bat* to create a config file (placed at *config.txt* by default) for the form. (This is equivalent to `run --convert <shortcut> config.txt`.)
+Drag an internet shortcut onto *run.bat* to create a config file (placed at *config.txt* by default) for the form. (This is equivalent to `run convert <shortcut> config.txt`.)
 
-Double click *run.bat* to find and use *config.txt* in the current folder. (`run --process config.txt`) To use a different file, drag it onto *run.bat*. (`run --process <filename>`)
+Double click *run.bat* to find and use *config.txt* in the current folder. (`run process config.txt`) To use a different file, drag it onto *run.bat*. (`run process <filename>`)
 
 You can also run the following in case the program window closes immediately. Replace `<command>` with the text in `code format` found above.
 
@@ -44,6 +44,10 @@ You can also run the following in case the program window closes immediately. Re
 > <command>
 > deactivate
 ```
+
+## Advanced
+
+If you want to specify the type of the argument that is being passed to `run convert`, you can add one of 3 mode flags: `--url`, `--file`, or `--shortcut`. The URL flag also accepts the 56 long string of characters in the address (the form ID).
 
 ## Config
 
